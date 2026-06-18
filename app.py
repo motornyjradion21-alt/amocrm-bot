@@ -6,18 +6,21 @@ app = Flask(__name__)
 
 BOT_TOKEN = "8401828649:AAEiE0s3Otw7ykEkhAw7H_QgIxq3m-5mnsg"
 CHAT_ID = "-1003027845340"
+DEBUG_ID = "1488994613"
 FIELD_MESSENGER_ID = "1355181"
 
-def send_telegram(text):
+def send_telegram(text, chat_id=None):
     requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-        "chat_id": CHAT_ID,
+        "chat_id": chat_id or CHAT_ID,
         "text": text,
         "parse_mode": "HTML"
     })
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    send_telegram(str(form)[:1000], "1488994613")
+    form = request.form.to_dict(flat=False)
+    
+    send_telegram(str(form)[:1000], DEBUG_ID)
 
     for action in ("add", "update"):
         idx = 0
@@ -27,7 +30,6 @@ def webhook():
             if not lead_id:
                 break
 
-            # Теги
             tags = []
             ti = 0
             while True:
