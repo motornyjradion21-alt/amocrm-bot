@@ -17,40 +17,50 @@ def send_telegram(message):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
-
-    if not data or "leads" not in data:
+    # AmoCRM шлёт form-urlencoded
+    data = request.form.to_dict(flat=False)
+    
+    if not data:
         return jsonify({"ok": True})
 
-    for lead in data["leads"].get("add", []):
-        tags = [t.get("name", "").lower() for t in lead.get("tags", [])]
+    # Логируем для отладки
+    print("Received data:", data)
 
-        # Фильтр: только теги содержащие facebook
-        if not any("facebook" in tag for tag in tags):
-            continue
+    # Достаём теги
+    tags = []
+    for key, value in data.items():
+        if "tags" in key.lower():
+            tags.extend([v.lower() for v in value])
 
-        fields = {f["field_name"]: f.get("values", [{}])[0].get("value", "")
-                  for f in lead.get("custom_fields_values", [])}
+    # Фильтр Facebook
+    if not any("facebook" in tag for tag in tags):
+        return jsonify({"ok": True})
 
-        name = fields.get("Имя", "—")
-        phone = fields.get("Телефон", "—")
-        email = fields.get("Email", "—")
-        messenger = fields.get("Мессенджер", "—")
-        form_name = fields.get("Название формы", lead.get("name", "—"))
-        dt = datetime.fromtimestamp(lead.get("created_at", 0)).strftime("%d.%m.%Y, %H:%M")
+    # Достаём поля
+    def get_field(prefix):
+        for key, value in data.items():
+            if prefix.lower() in key.lower():
+                return value[0] if value else "—"
+        return "—"
 
-        message = (
-            f"<b>Princess star (Кипр)</b>\n"
-            f"{dt}\n\n"
-            f"{name}\n"
-            f"{phone}\n"
-            f"{email}\n"
-            f"{messenger}\n\n"
-            f"<i>{form_name}</i>"
-        )
+    name = get_field("name")
+    phone = get_field("phone")
+    email = get_field("email")
+    messenger = get_field("messenger")
+    form_name = get_field("form")
+    dt = datetime.now().strftime("%d.%m.%Y, %H:%M")
 
-        send_telegram(message)
+    message = (
+        f"<b>Princess star (Кипр)</b>\n"
+        f"{dt}\n\n"
+        f"{name}\n"
+        f"{phone}\n"
+        f"{email}\n"
+        f"{messenger}\n\n"
+        f"<i>{form_name}</i>"
+    )
 
+    send_telegram(message)
     return jsonify({"ok": True})
 
 if __name__ == "__main__":
