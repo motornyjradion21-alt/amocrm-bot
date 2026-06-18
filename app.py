@@ -18,13 +18,23 @@ def send_telegram(message, chat_id=None):
         "parse_mode": "HTML"
     })
 
-def get_contact(contact_id):
-    url = f"https://{AMO_DOMAIN}/api/v4/contacts/{contact_id}"
-    headers = {"Authorization": f"Bearer {AMO_API_KEY}"}
-    r = requests.get(url, headers=headers)
-    send_telegram(f"Contact API: {r.status_code}\n{r.text[:300]}", DEBUG_ID)
+def get_contact_api(contact_id):
+    url = f"https://{AMO_DOMAIN}/private/api/v2/json/contacts/list"
+    params = {
+        "id": contact_id,
+        "USER_LOGIN": "Eurozats@gmail.com",
+        "USER_HASH": AMO_API_KEY
+    }
+    r = requests.get(url, params=params)
+    send_telegram(f"API status: {r.status_code}\n{r.text[:300]}", DEBUG_ID)
     if r.status_code == 200:
-        return r.json()
+        try:
+            data = r.json()
+            contacts = data.get("response", {}).get("contacts", [])
+            if contacts:
+                return contacts[0]
+        except:
+            pass
     return None
 
 @app.route("/webhook", methods=["POST"])
