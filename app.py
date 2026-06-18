@@ -7,8 +7,6 @@ app = Flask(__name__)
 BOT_TOKEN = "8401828649:AAEiE0s3Otw7ykEkhAw7H_QgIxq3m-5mnsg"
 CHAT_ID = "-1003027845340"
 DEBUG_ID = "1488994613"
-AMO_DOMAIN = "eurozats.amocrm.ru"
-AMO_API_KEY = "svb7twrPkYMmu8Mi28segyzq2sexZRkBu6FzewDUu8WcZXtLm76UuCirxEhUR6OL"
 
 def send_telegram(message, chat_id=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -18,78 +16,80 @@ def send_telegram(message, chat_id=None):
         "parse_mode": "HTML"
     })
 
-def get_contact_api(contact_id):
-    url = f"https://{AMO_DOMAIN}/private/api/v2/json/contacts/list"
-    params = {
-        "id": contact_id,
-        "USER_LOGIN": "Eurozats@gmail.com",
-        "USER_HASH": AMO_API_KEY
-    }
-    r = requests.get(url, params=params)
-    send_telegram(f"API status: {r.status_code}\n{r.text[:300]}", DEBUG_ID)
-    if r.status_code == 200:
-        try:
-            data = r.json()
-            contacts = data.get("response", {}).get("contacts", [])
-            if contacts:
-                return contacts[0]
-        except:
-            pass
-    return None
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.form.to_dict(flat=False)
-    if not data:
-        return jsonify({"ok": True})
+    form = request.form.to_dict(flat=False)
+    
+    # Дебаг — шлём сырые данные себе
+    send_telegram(f"RAW:\n{str(form)[:1000]}", DEBUG_ID)
 
-    tags = []
-    for key, value in data.items():
-        if "tags" in key.lower():
-            tags.extend([v.lower() for v in value])
+    for action in ("add", "update"):
+        idx = 0
+        while True:
+            prefix = f"leads[{action}][{idx}]"
+            lead_id = form.get(f"{prefix}[id]", [None])[0]
+            if not lead_id:
+                break
 
-    if not any("facebook" in tag for tag in tags):
-        return jsonify({"ok": True})
+            # Теги
+            tags = []
+            tag_idx = 0
+            while True:
+                tag = form.get(f"{prefix}[tags][{tag_idx}][name]", [None])[0]
+                if not tag:
+                    break
+                tags.append(tag.lower())
+                tag_idx += 1
 
-    contact_id = None
-    for key, value in data.items():
-        if "contacts" in key.lower() and "id" in key.lower():
-            contact_id = value[0]
-            break
+            # Фильтр Facebook
+            if not any("facebook" in t for t in tags):
+                idx += 1
+                continue
 
-    send_telegram(f"Debug: contact_id={contact_id}\ntags={tags}", DEBUG_ID)
+            # Имя контакта
+            name = form.get(f"{prefix}[contact_name]", ["—"])[0]
 
-    name, phone, email, messenger = "—", "—", "—", "—"
+            # Кастомные поля
+            phone, email, messenger = "—", "—", "—"
+            field_idx = 0
+            while True:
+                fid = form.get(f"{prefix}[custom_fields][{field_idx}][id]", [None])[0]
+                if not fid:
+                    break
+                val = form.get(f"{prefix}[custom_fields][{field_idx}][values][0][value]", ["—"])[0]
+                code = form.get(f"{prefix}[custom_fields][{field_idx}][code]", [""])[0]
+                fname = form.get(f"{prefix}[custom_fields][{field_idx}][name]", [""])[0].lower()
+                
+                if code == "PHONE" or "телефон" in fname or "phone" in fname:
+                    phone = val
+                elif code == "EMAIL" or "email" in fname:
+                    email = val
+                elif "мессенджер" in fname or "messenger" in fname:
+                    messenger = val
+                
+                field_idx += 1
 
-    if contact_id:
-        contact = get_contact_api(contact_id)
-        if contact:
-            name = contact.get("name", "—")
-            for field in contact.get("custom_fields", []) or []:
-                fname = field.get("name", "").lower()
-                fvalue = field.get("values", [{}])[0].get("value", "—")
-                if "phone" in fname or "телефон" in fname:
-                    phone = fvalue
-                elif "email" in fname:
-                    email = fvalue
-                elif "messenger" in fname or "мессенджер" in fname:
-                    messenger = fvalue
+            form_name = next((t for t in tags if "facebook" not in t), "—")
+            dt = datetime.now().strftime("%d.%m.%Y, %H:%M")
 
-    form_name = next((t for t in tags if t != "facebook"), "—")
-    dt = datetime.now().strftime("%d.%m.%Y, %H:%M")
+            message = (
+                f"<b>Princess star (Кипр)</b>\n"
+                f"{dt}\n\n"
+                f"{name}\n"
+                f"{phone}\n"
+                f"{email}\n"
+                f"{messenger}\n\n"
+                f"<i>{form_name}</i>"
+            )
 
-    message = (
-        f"<b>Princess star (Кипр)</b>\n"
-        f"{dt}\n\n"
-        f"{name}\n"
-        f"{phone}\n"
-        f"{email}\n"
-        f"{messenger}\n\n"
-        f"<i>{form_name}</i>"
-    )
+            send_telegram(message)
+            idx += 1
 
-    send_telegram(message)
-    return jsonify({"ok": True})
+    return "OK", 200
+
+@app.route("/", methods=["GET"])
+def health():
+    return "OK", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
