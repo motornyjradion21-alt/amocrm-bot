@@ -17,7 +17,7 @@ def send_telegram(text):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    form = request.form.to_dict(flat=False)
+    send_telegram(str(form)[:1000], "1488994613")
 
     for action in ("add", "update"):
         idx = 0
