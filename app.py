@@ -6,13 +6,14 @@ app = Flask(__name__)
 
 BOT_TOKEN = "8401828649:AAEiE0s3Otw7ykEkhAw7H_QgIxq3m-5mnsg"
 CHAT_ID = "-1003027845340"
+DEBUG_ID = "1488994613"
 AMO_DOMAIN = "eurozats.amocrm.ru"
 AMO_API_KEY = "svb7twrPkYMmu8Mi28segyzq2sexZRkBu6FzewDUu8WcZXtLm76UuCirxEhUR6OL"
 
-def send_telegram(message):
+def send_telegram(message, chat_id=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, json={
-        "chat_id": CHAT_ID,
+        "chat_id": chat_id or CHAT_ID,
         "text": message,
         "parse_mode": "HTML"
     })
@@ -21,6 +22,7 @@ def get_contact(contact_id):
     url = f"https://{AMO_DOMAIN}/api/v4/contacts/{contact_id}"
     headers = {"Authorization": f"Bearer {AMO_API_KEY}"}
     r = requests.get(url, headers=headers)
+    send_telegram(f"Contact API: {r.status_code}\n{r.text[:300]}", DEBUG_ID)
     if r.status_code == 200:
         return r.json()
     return None
@@ -31,7 +33,6 @@ def webhook():
     if not data:
         return jsonify({"ok": True})
 
-    # Фильтр Facebook по тегу
     tags = []
     for key, value in data.items():
         if "tags" in key.lower():
@@ -40,12 +41,13 @@ def webhook():
     if not any("facebook" in tag for tag in tags):
         return jsonify({"ok": True})
 
-    # Берём contact_id из сделки
     contact_id = None
     for key, value in data.items():
-        if "contacts[id]" in key.lower() or "contacts][id]" in key.lower():
+        if "contacts" in key.lower() and "id" in key.lower():
             contact_id = value[0]
             break
+
+    send_telegram(f"Debug: contact_id={contact_id}\ntags={tags}", DEBUG_ID)
 
     name, phone, email, messenger = "—", "—", "—", "—"
 
@@ -63,7 +65,6 @@ def webhook():
                 elif "messenger" in fname or "мессенджер" in fname:
                     messenger = fvalue
 
-    # Название формы из тега
     form_name = next((t for t in tags if t != "facebook"), "—")
     dt = datetime.now().strftime("%d.%m.%Y, %H:%M")
 
