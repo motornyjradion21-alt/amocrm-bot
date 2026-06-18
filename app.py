@@ -62,11 +62,11 @@ def webhook():
     name, phone, email, messenger = "—", "—", "—", "—"
 
     if contact_id:
-        contact = get_contact(contact_id)
+        contact = get_contact_api(contact_id)
         if contact:
             name = contact.get("name", "—")
-            for field in contact.get("custom_fields_values", []) or []:
-                fname = field.get("field_name", "").lower()
+            for field in contact.get("custom_fields", []) or []:
+                fname = field.get("name", "").lower()
                 fvalue = field.get("values", [{}])[0].get("value", "—")
                 if "phone" in fname or "телефон" in fname:
                     phone = fvalue
