@@ -1,6 +1,6 @@
 from flask import Flask, request
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -46,7 +46,8 @@ def webhook():
                     messenger = val
                 fi += 1
 
-            dt = datetime.now().strftime("%d.%m.%Y, %H:%M")
+            # Кипр UTC+3
+            dt = (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y, %H:%M")
 
             send_telegram(
                 f"<b>Princess star (Кипр)</b>\n"
