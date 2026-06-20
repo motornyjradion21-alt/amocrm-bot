@@ -10,7 +10,6 @@ BOT_TOKEN = "8401828649:AAEiE0s3Otw7ykEkhAw7H_QgIxq3m-5mnsg"
 CHAT_ID = "-1003027845340"
 FIELD_MESSENGER_ID = "1355181"
 
-# Временное хранилище контактов и сделок для связывания
 pending_contacts = {}
 pending_leads = {}
 lock = threading.Lock()
@@ -26,12 +25,10 @@ def cyprus_time():
     return (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y, %H:%M")
 
 def try_match_and_send():
-    """Пытается сопоставить последний контакт и сделку с тегом facebook."""
     with lock:
         if not pending_contacts or not pending_leads:
             return
 
-        # Берём самый свежий контакт и самую свежую facebook-сделку
         contact_key = max(pending_contacts.keys())
         contact = pending_contacts.pop(contact_key)
 
@@ -52,7 +49,7 @@ def try_match_and_send():
 def webhook():
     form = request.form.to_dict(flat=False)
 
-    # ── Обработка сделок (берём тег с названием формы) ──
+    # ── Сделки ──
     for action in ("add", "update"):
         idx = 0
         while True:
@@ -70,16 +67,18 @@ def webhook():
                 tags.append(tag)
                 ti += 1
 
-            fb_tags = [t for t in tags if "facebook" in t.lower()]
-            if fb_tags:
-                form_name = fb_tags[0]
+            is_facebook = any("facebook" in t.lower() for t in tags)
+            lead_name = (form.get(f"{p}[name]") or [""])[0]
+
+            if is_facebook:
+                form_name = lead_name if lead_name else "Новая заявка"
                 with lock:
                     pending_leads[time.time()] = {"form_name": form_name}
                 threading.Timer(1.5, try_match_and_send).start()
 
             idx += 1
 
-    # ── Обработка контактов ──
+    # ── Контакты ──
     for action in ("add", "update"):
         idx = 0
         while True:
