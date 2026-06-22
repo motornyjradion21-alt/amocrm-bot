@@ -16,20 +16,20 @@ AMO_CLIENT_SECRET = "svb7twrPkYMmu8Mi28segyzq2sexZRkBu6FzewDUu8WcZXtLm76UuCirxEh
 AMO_REDIRECT_URI = "https://amocrm-bot-production-4773.up.railway.app/oauth/callback"
 TOKEN_FILE = "/tmp/tokens.json"
 
-def save_tokens(access_token, refresh_token, expires_in):
-    with open(TOKEN_FILE, "w") as f:
-        json.dump({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "expires_at": time.time() + expires_in
-        }, f)
-
 def load_tokens():
-    try:
-        with open(TOKEN_FILE) as f:
-            return json.load(f)
-    except:
+    at = os.environ.get("ACCESS_TOKEN")
+    rt = os.environ.get("REFRESH_TOKEN")
+    if not at or not rt:
         return None
+    return {
+        "access_token": at,
+        "refresh_token": rt,
+        "expires_at": time.time() + 86400
+    }
+
+def save_tokens(access_token, refresh_token, expires_in):
+    os.environ["ACCESS_TOKEN"] = access_token
+    os.environ["REFRESH_TOKEN"] = refresh_token
 
 def get_access_token():
     tokens = load_tokens()
