@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify
 import requests
 from datetime import datetime, timedelta
 import threading
@@ -10,26 +10,19 @@ app = Flask(__name__)
 
 BOT_TOKEN = "8401828649:AAEiE0s3Otw7ykEkhAw7H_QgIxq3m-5mnsg"
 CHAT_ID = "-1003027845340"
-FIELD_MESSENGER_ID = "1355181"
 AMO_DOMAIN = "eurozats.amocrm.ru"
 AMO_CLIENT_ID = "d0360f76-edf4-451c-807f-3cb53cd9da86"
 AMO_CLIENT_SECRET = "svb7twrPkYMmu8Mi28segyzq2sexZRkBu6FzewDUu8WcZXtLm76UuCirxEhUR6OL"
 AMO_REDIRECT_URI = "https://amocrm-bot-production-4773.up.railway.app/oauth/callback"
-
 TOKEN_FILE = "/tmp/tokens.json"
 
-pending_contacts = {}
-pending_leads = {}
-lock = threading.Lock()
-
 def save_tokens(access_token, refresh_token, expires_in):
-    tokens = {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "expires_at": time.time() + expires_in
-    }
     with open(TOKEN_FILE, "w") as f:
-        json.dump(tokens, f)
+        json.dump({
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_at": time.time() + expires_in
+        }, f)
 
 def load_tokens():
     try:
@@ -72,28 +65,14 @@ def send_telegram(text, chat_id=None):
 def cyprus_time():
     return (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y, %H:%M")
 
-def get_lead_details(lead_id, access_token):
-    headers = {"Authorization": f"Bearer {access_token}"}
-    try:
-        r = requests.get(f"https://{AMO_DOMAIN}/api/v4/leads/{lead_id}?with=contacts,source_id", headers=headers, timeout=10)
-        return r.json()
-    except:
-        return None
-
-def get_contact_details(contact_id, access_token):
-    headers = {"Authorization": f"Bearer {access_token}"}
-    try:
-        r = requests.get(f"https://{AMO_DOMAIN}/api/v4/contacts/{contact_id}", headers=headers, timeout=10)
-        return r.json()
-    except:
-        return None
-
 def get_source_name(source_id, access_token):
-    headers = {"Authorization": f"Bearer {access_token}"}
     try:
-        r = requests.get(f"https://{AMO_DOMAIN}/ajax/v4/sources?limit=250", headers=headers, timeout=10)
-        sources = r.json().get("_embedded", {}).get("sources", [])
-        for s in sources:
+        r = requests.get(
+            f"https://{AMO_DOMAIN}/ajax/v4/sources?limit=250",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10
+        )
+        for s in r.json().get("_embedded", {}).get("sources", []):
             if s.get("id") == source_id:
                 return s.get("name", "")
     except:
@@ -103,10 +82,19 @@ def get_source_name(source_id, access_token):
 def process_lead_with_api(lead_id, lead_name):
     access_token = get_access_token()
     if not access_token:
+        print("No access token")
         return
 
-    lead = get_lead_details(lead_id, access_token)
-    if not lead:
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    try:
+        r = requests.get(
+            f"https://{AMO_DOMAIN}/api/v4/leads/{lead_id}?with=contacts,source_id",
+            headers=headers, timeout=10
+        )
+        lead = r.json()
+    except Exception as e:
+        print(f"Lead fetch error: {e}")
         return
 
     source_name = ""
@@ -116,10 +104,15 @@ def process_lead_with_api(lead_id, lead_name):
     form_name = source_name or lead_name or "Новая заявка"
 
     contact_name, phone, email, messenger = "—", "—", "—", "—"
+
     contacts = lead.get("_embedded", {}).get("contacts", [])
     if contacts:
-        contact = get_contact_details(contacts[0]["id"], access_token)
-        if contact:
+        try:
+            r = requests.get(
+                f"https://{AMO_DOMAIN}/api/v4/contacts/{contacts[0]['id']}",
+                headers=headers, timeout=10
+            )
+            contact = r.json()
             contact_name = contact.get("name", "—")
             for f in contact.get("custom_fields_values", []) or []:
                 code = f.get("field_code", "")
@@ -131,6 +124,8 @@ def process_lead_with_api(lead_id, lead_name):
                     email = val
                 elif "мессенджер" in fname or "messenger" in fname:
                     messenger = val
+        except Exception as e:
+            print(f"Contact fetch error: {e}")
 
     send_telegram(
         f"<b>{form_name}</b>\n"
@@ -140,6 +135,15 @@ def process_lead_with_api(lead_id, lead_name):
         f"{email}\n"
         f"{messenger}"
     )
+
+@app.route("/setup/tokens")
+def setup_tokens():
+    at = request.args.get("at")
+    rt = request.args.get("rt")
+    if not at or not rt:
+        return "Нужны параметры at и rt", 400
+    save_tokens(at, rt, 86400)
+    return "✅ Токены сохранены!", 200
 
 @app.route("/oauth/callback")
 def oauth_callback():
@@ -183,7 +187,10 @@ def webhook():
 
             if any("facebook" in t.lower() for t in tags):
                 lead_name = (form.get(f"{p}[name]") or [""])[0]
-                threading.Thread(target=process_lead_with_api, args=(lead_id, lead_name)).start()
+                threading.Thread(
+                    target=process_lead_with_api,
+                    args=(lead_id, lead_name)
+                ).start()
 
             idx += 1
 
@@ -194,7 +201,7 @@ def health():
     tokens = load_tokens()
     if tokens:
         return "✅ OK - токены есть", 200
-    return "⚠️ OK - нет OAuth токенов, нужна авторизация", 200
+    return "⚠️ OK - нет токенов", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
