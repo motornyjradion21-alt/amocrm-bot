@@ -39,17 +39,32 @@ def try_match_and_send():
         lead_key = max(pending_leads.keys())
         lead = pending_leads.pop(lead_key)
 
+    # Чистим utm_referrer — оставляем только домен
+    utm_lines = []
+    for line in lead['utm'].split("\n"):
+        if "utm_referrer" in line or "referrer" in line:
+            try:
+                val = line.split(": ", 1)[1]
+                from urllib.parse import urlparse
+                domain = urlparse(val).netloc or val
+                utm_lines.append(f"utm_referrer: {domain}")
+            except:
+                utm_lines.append(line)
+        else:
+            utm_lines.append(line)
+    utm_clean = "\n".join(utm_lines)
+
+    name = contact['name'] if contact['name'] != "—" else "Аноним"
+
     send_telegram(
         f"<b>{lead['form_name']}</b>\n"
         f"{cyprus_time()}\n\n"
-        f"{contact['name']}\n"
-        f"{contact['phone']}\n"
-        f"{contact['email']}\n"
-        f"{contact['messenger']}\n\n"
-        f"{lead['utm']}"
+        f"Имя: {name}\n"
+        f"Телефон: {contact['phone']}\n"
+        f"Email: {contact['email']}\n"
+        f"Мессенджер: {contact['messenger']}\n\n"
+        f"{utm_clean}"
     )
-
-@app.route("/webhook", methods=["POST"])
 def webhook():
     form = request.form.to_dict(flat=False)
 
