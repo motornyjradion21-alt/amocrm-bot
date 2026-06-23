@@ -10,6 +10,7 @@ BOT_TOKEN = "8401828649:AAEiE0s3Otw7ykEkhAw7H_QgIxq3m-5mnsg"
 CHAT_ID = "-1003027845340"
 MY_ID = "1488994613"
 FIELD_MESSENGER_ID = "1355181"
+PIPELINE_ID = "6743162"
 
 pending_contacts = {}
 pending_leads = {}
@@ -44,7 +45,8 @@ def try_match_and_send():
         f"{contact['name']}\n"
         f"{contact['phone']}\n"
         f"{contact['email']}\n"
-        f"{contact['messenger']}"
+        f"{contact['messenger']}\n\n"
+        f"{lead['utm']}"
     )
 
 @app.route("/webhook", methods=["POST"])
@@ -59,19 +61,30 @@ def webhook():
             if not lead_id:
                 break
 
-            tags = []
-            ti = 0
-            while True:
-                tag = (form.get(f"{p}[tags][{ti}][name]") or [None])[0]
-                if not tag:
-                    break
-                tags.append(tag)
-                ti += 1
+            pipeline_id = (form.get(f"{p}[pipeline_id]") or [""])[0]
 
-            if any("facebook" in t.lower() for t in tags):
+            if pipeline_id == PIPELINE_ID:
                 lead_name = (form.get(f"{p}[name]") or ["Новая заявка"])[0]
+
+                # UTM из кастомных полей
+                utm_parts = []
+                fi = 0
+                while True:
+                    fname = (form.get(f"{p}[custom_fields][{fi}][name]") or [""])[0].lower()
+                    fval = (form.get(f"{p}[custom_fields][{fi}][values][0][value]") or [""])[0]
+                    if not fname and not fval:
+                        break
+                    if "utm" in fname and fval:
+                        utm_parts.append(f"{fname}: {fval}")
+                    fi += 1
+
+                utm_text = "\n".join(utm_parts) if utm_parts else ""
+
                 with lock:
-                    pending_leads[time.time()] = {"form_name": lead_name or "Новая заявка"}
+                    pending_leads[time.time()] = {
+                        "form_name": lead_name or "Новая заявка",
+                        "utm": utm_text
+                    }
                 threading.Timer(2.0, try_match_and_send).start()
 
             idx += 1
