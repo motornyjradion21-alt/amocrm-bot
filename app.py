@@ -1,59 +1,18 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
 import requests
 from datetime import datetime, timedelta
 import threading
 import time
-import json
-import os
 
 app = Flask(__name__)
 
 BOT_TOKEN = "8401828649:AAEiE0s3Otw7ykEkhAw7H_QgIxq3m-5mnsg"
 CHAT_ID = "-1003027845340"
-AMO_DOMAIN = "eurozats.amocrm.ru"
-AMO_CLIENT_ID = "d0360f76-edf4-451c-807f-3cb53cd9da86"
-AMO_CLIENT_SECRET = "svb7twrPkYMmu8Mi28segyzq2sexZRkBu6FzewDUu8WcZXtLm76UuCirxEhUR6OL"
-AMO_REDIRECT_URI = "https://amocrm-bot-production-4773.up.railway.app/oauth/callback"
-TOKEN_FILE = "/tmp/tokens.json"
+FIELD_MESSENGER_ID = "1355181"
 
-def load_tokens():
-    at = os.environ.get("ACCESS_TOKEN")
-    rt = os.environ.get("REFRESH_TOKEN")
-    if not at or not rt:
-        return None
-    return {
-        "access_token": at,
-        "refresh_token": rt,
-        "expires_at": time.time() + 86400
-    }
-
-def save_tokens(access_token, refresh_token, expires_in):
-    os.environ["ACCESS_TOKEN"] = access_token
-    os.environ["REFRESH_TOKEN"] = refresh_token
-
-def get_access_token():
-    tokens = load_tokens()
-    if not tokens:
-        return None
-    if time.time() > tokens["expires_at"] - 300:
-        return refresh_access_token(tokens["refresh_token"])
-    return tokens["access_token"]
-
-def refresh_access_token(refresh_token):
-    try:
-        r = requests.post(f"https://{AMO_DOMAIN}/oauth2/access_token", json={
-            "client_id": AMO_CLIENT_ID,
-            "client_secret": AMO_CLIENT_SECRET,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "redirect_uri": AMO_REDIRECT_URI
-        }, timeout=15)
-        data = r.json()
-        save_tokens(data["access_token"], data["refresh_token"], data["expires_in"])
-        return data["access_token"]
-    except Exception as e:
-        print(f"Refresh error: {e}")
-        return None
+pending_contacts = {}
+pending_leads = {}
+lock = threading.Lock()
 
 def send_telegram(text, chat_id=None):
     requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
@@ -65,104 +24,22 @@ def send_telegram(text, chat_id=None):
 def cyprus_time():
     return (datetime.utcnow() + timedelta(hours=3)).strftime("%d.%m.%Y, %H:%M")
 
-def get_source_name(source_id, access_token):
-    try:
-        r = requests.get(
-            f"https://{AMO_DOMAIN}/ajax/v4/sources?limit=250",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10
+def try_match_and_send():
+    with lock:
+        if not pending_contacts or not pending_leads:
+            return
+        contact_key = max(pending_contacts.keys())
+        contact = pending_contacts.pop(contact_key)
+        lead_key = max(pending_leads.keys())
+        lead = pending_leads.pop(lead_key)
+        send_telegram(
+            f"<b>{lead['form_name']}</b>\n"
+            f"{cyprus_time()}\n\n"
+            f"{contact['name']}\n"
+            f"{contact['phone']}\n"
+            f"{contact['email']}\n"
+            f"{contact['messenger']}"
         )
-        for s in r.json().get("_embedded", {}).get("sources", []):
-            if s.get("id") == source_id:
-                return s.get("name", "")
-    except:
-        pass
-    return ""
-
-def process_lead_with_api(lead_id, lead_name):
-    access_token = get_access_token()
-    if not access_token:
-        print("No access token")
-        return
-
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    try:
-        r = requests.get(
-            f"https://{AMO_DOMAIN}/api/v4/leads/{lead_id}?with=contacts,source_id",
-            headers=headers, timeout=10
-        )
-        lead = r.json()
-    except Exception as e:
-        print(f"Lead fetch error: {e}")
-        return
-
-    source_name = ""
-    if lead.get("source_id"):
-        source_name = get_source_name(lead["source_id"], access_token)
-
-    form_name = source_name or lead_name or "Новая заявка"
-
-    contact_name, phone, email, messenger = "—", "—", "—", "—"
-
-    contacts = lead.get("_embedded", {}).get("contacts", [])
-    if contacts:
-        try:
-            r = requests.get(
-                f"https://{AMO_DOMAIN}/api/v4/contacts/{contacts[0]['id']}",
-                headers=headers, timeout=10
-            )
-            contact = r.json()
-            contact_name = contact.get("name", "—")
-            for f in contact.get("custom_fields_values", []) or []:
-                code = f.get("field_code", "")
-                fname = f.get("field_name", "").lower()
-                val = f.get("values", [{}])[0].get("value", "—")
-                if code == "PHONE":
-                    phone = val
-                elif code == "EMAIL":
-                    email = val
-                elif "мессенджер" in fname or "messenger" in fname:
-                    messenger = val
-        except Exception as e:
-            print(f"Contact fetch error: {e}")
-
-    send_telegram(
-        f"<b>{form_name}</b>\n"
-        f"{cyprus_time()}\n\n"
-        f"{contact_name}\n"
-        f"{phone}\n"
-        f"{email}\n"
-        f"{messenger}"
-    )
-
-@app.route("/setup/tokens")
-def setup_tokens():
-    at = request.args.get("at")
-    rt = request.args.get("rt")
-    if not at or not rt:
-        return "Нужны параметры at и rt", 400
-    save_tokens(at, rt, 86400)
-    return "✅ Токены сохранены!", 200
-
-@app.route("/oauth/callback")
-def oauth_callback():
-    code = request.args.get("code")
-    if not code:
-        return "No code", 400
-    try:
-        r = requests.post(f"https://{AMO_DOMAIN}/oauth2/access_token", json={
-            "client_id": AMO_CLIENT_ID,
-            "client_secret": AMO_CLIENT_SECRET,
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": AMO_REDIRECT_URI
-        }, timeout=15)
-        data = r.json()
-        save_tokens(data["access_token"], data["refresh_token"], data["expires_in"])
-        return "✅ OAuth успешно! Токены сохранены.", 200
-    except Exception as e:
-        return f"Error: {e}", 500
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -175,7 +52,6 @@ def webhook():
             lead_id = (form.get(f"{p}[id]") or [None])[0]
             if not lead_id:
                 break
-
             tags = []
             ti = 0
             while True:
@@ -184,24 +60,48 @@ def webhook():
                     break
                 tags.append(tag)
                 ti += 1
-
             if any("facebook" in t.lower() for t in tags):
-                lead_name = (form.get(f"{p}[name]") or [""])[0]
-                threading.Thread(
-                    target=process_lead_with_api,
-                    args=(lead_id, lead_name)
-                ).start()
+                lead_name = (form.get(f"{p}[name]") or ["Новая заявка"])[0]
+                with lock:
+                    pending_leads[time.time()] = {"form_name": lead_name}
+                threading.Timer(2.0, try_match_and_send).start()
+            idx += 1
 
+    for action in ("add", "update"):
+        idx = 0
+        while True:
+            p = f"contacts[{action}][{idx}]"
+            contact_id = (form.get(f"{p}[id]") or [None])[0]
+            if not contact_id:
+                break
+            name = (form.get(f"{p}[name]") or ["—"])[0]
+            phone, email, messenger = "—", "—", "—"
+            fi = 0
+            while True:
+                fid = (form.get(f"{p}[custom_fields][{fi}][id]") or [None])[0]
+                if not fid:
+                    break
+                val = (form.get(f"{p}[custom_fields][{fi}][values][0][value]") or ["—"])[0]
+                code = (form.get(f"{p}[custom_fields][{fi}][code]") or [""])[0]
+                if code == "PHONE":
+                    phone = val
+                elif code == "EMAIL":
+                    email = val
+                elif str(fid) == FIELD_MESSENGER_ID:
+                    messenger = val
+                fi += 1
+            with lock:
+                pending_contacts[time.time()] = {
+                    "name": name, "phone": phone, "email": email, "messenger": messenger
+                }
+            threading.Timer(2.0, try_match_and_send).start()
             idx += 1
 
     return "OK", 200
 
 @app.route("/", methods=["GET"])
 def health():
-    tokens = load_tokens()
-    if tokens:
-        return "✅ OK - токены есть", 200
-    return "⚠️ OK - нет токенов", 200
+    return "OK", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
