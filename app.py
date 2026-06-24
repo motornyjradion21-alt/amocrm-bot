@@ -39,7 +39,6 @@ def try_match_and_send():
         lead_key = max(pending_leads.keys())
         lead = pending_leads.pop(lead_key)
 
-    # Чистим utm_referrer — оставляем только домен
     utm_lines = []
     for line in lead['utm'].split("\n"):
         if "utm_referrer" in line or "referrer" in line:
@@ -65,6 +64,8 @@ def try_match_and_send():
         f"Мессенджер: {contact['messenger']}\n\n"
         f"{utm_clean}"
     )
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
     form = request.form.to_dict(flat=False)
 
@@ -81,7 +82,6 @@ def webhook():
             if pipeline_id == PIPELINE_ID:
                 lead_name = (form.get(f"{p}[name]") or ["Новая заявка"])[0]
 
-                # UTM из кастомных полей
                 utm_parts = []
                 fi = 0
                 while True:
