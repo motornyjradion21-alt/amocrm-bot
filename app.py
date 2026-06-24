@@ -100,7 +100,7 @@ def webhook():
                         "form_name": lead_name or "Новая заявка",
                         "utm": utm_text
                     }
-                threading.Timer(2.0, try_match_and_send).start()
+                threading.Timer(6.0, try_match_and_send).start()
 
             idx += 1
 
@@ -138,7 +138,7 @@ def webhook():
                     "email": email,
                     "messenger": messenger
                 }
-            threading.Timer(2.0, try_match_and_send).start()
+            threading.Timer(6.0, try_match_and_send).start()
             idx += 1
 
     return "OK", 200
