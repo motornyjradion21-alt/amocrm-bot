@@ -69,6 +69,9 @@ def try_match_and_send():
 def webhook():
     form = request.form.to_dict(flat=False)
 
+    # Дебаг — шлём первые поля
+    send_telegram(f"DEBUG:\n{str(list(form.items())[:8])}")
+
     for action in ("add", "update"):
         idx = 0
         while True:
@@ -78,6 +81,7 @@ def webhook():
                 break
 
             pipeline_id = (form.get(f"{p}[pipeline_id]") or [""])[0]
+            send_telegram(f"Lead pipeline_id: {pipeline_id}, expected: {PIPELINE_ID}")
 
             if pipeline_id == PIPELINE_ID:
                 lead_name = (form.get(f"{p}[name]") or ["Новая заявка"])[0]
